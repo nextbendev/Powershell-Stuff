@@ -1,0 +1,445 @@
+#Forces Admin sign-in
+param([switch]$Elevated)
+
+function Test-Admin {
+    $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
+    $currentUser.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+}
+
+if ((Test-Admin) -eq $false)  {
+    if ($elevated) {
+        # tried to elevate, did not work, aborting
+    } else {
+        Start-Process powershell.exe -Verb RunAs -ArgumentList ('-noprofile -noexit -file "{0}" -elevated' -f ($myinvocation.MyCommand.Definition))
+    }
+    exit
+}
+
+'Running with Admin privledges'
+
+# Check if Active Directory module is installed
+if (-not (Get-Module -ListAvailable -Name ActiveDirectory)) {
+    Write-Host "Active Directory module is not installed."
+
+    # Check if the RSAT tools are installed
+    if ((Get-WindowsOptionalFeature -Online -FeatureName RSATClient).State -ne 'Enabled') {
+        Write-Host "Remote Server Administration Tools (RSAT) are not installed."
+
+        # Prompt user to install RSAT tools
+        $installRSAT = Read-Host "Do you want to install RSAT tools? (Y/N)"
+        if ($installRSAT -eq 'Y') {
+            # Install RSAT tools
+            Enable-WindowsOptionalFeature -Online -FeatureName RSATClient
+            Write-Host "RSAT tools have been installed."
+        }
+        else {
+            Write-Host "RSAT tools are required to use the Active Directory module. Please install RSAT tools and try again."
+            exit
+        }
+    }
+
+    # Install Active Directory module
+    Write-Host "Installing Active Directory module..."
+    Install-WindowsFeature RSAT-AD-PowerShell
+    Write-Host "Active Directory module has been installed."
+}
+
+# Import Active Directory module
+Import-Module ActiveDirectory
+Write-Host "Active Directory module is ready to use."
+
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+
+
+# Create the global variables
+$global:termUserOuSelect = $null
+$global:confirmA = $false
+$global:confirmB = $false
+$global:adUser = @()
+$global:terminationDate
+
+
+#create form
+$form = New-Object Windows.Forms.Form
+$form.Text = "Employee Termination Console"
+$form.ClientSize = New-Object System.Drawing.Size(500, 450)
+$form.BackColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+
+# Create the label control and set text, size, and location
+$label = New-Object Windows.Forms.Label
+$label.Text = "Search for employee:"
+$label.AutoSize = $true
+$label.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$label.Location = New-Object System.Drawing.Point(40, 20)
+$form.Controls.Add($label)
+
+# Create TextBox and set text, size, and location
+$textfield = New-Object Windows.Forms.TextBox
+$textfield.Location = New-Object System.Drawing.Point(40, 50)
+$textfield.Width = 350
+$textfield.Height = 30
+$textfield.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
+$textfield.BackColor = [System.Drawing.Color]::FromArgb(255, 248, 243, 212)
+$form.Controls.Add($textfield)
+
+# Create Button to search AD and set text, size, and location
+$btn = New-Object Windows.Forms.Button
+$btn.Location = New-Object System.Drawing.Point(390, 50)
+$btn.Width = 50
+$btn.Height = 25
+$btn.FlatStyle = "Flat"
+$btn.BackColor = [System.Drawing.Color]::white
+$btn.Text = "Search"
+$form.Controls.Add($btn)
+
+# Create the set employee label control and set text, size, and location
+$selectEmpLabel = New-Object Windows.Forms.Label
+$selectEmpLabel.Text = "Select employee:"
+$selectEmpLabel.AutoSize = $true
+$selectEmpLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$selectEmpLabel.Location = New-Object System.Drawing.Point(40, 90)
+$form.Controls.Add($selectEmpLabel)
+
+# Create ComboBox and set size and location
+$comboBox = New-Object System.Windows.Forms.ComboBox
+$comboBox.Location = New-Object System.Drawing.Point(40, 120)
+$comboBox.Width = 350
+$comboBox.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
+$comboBox.Items.AddRange(@("Did you hit select by the input box?"))
+$comboBox.BackColor = [System.Drawing.Color]::FromArgb(255, 248, 243, 212)
+$form.Controls.Add($comboBox)
+
+# Create Button to search AD for employee and load info
+$setEmp = New-Object Windows.Forms.Button
+$setEmp.Location = New-Object System.Drawing.Point(390, 120)
+$setEmp.Width = 50
+$setEmp.Height = 25
+$setEmp.FlatStyle = "Flat"
+$setEmp.BackColor = [System.Drawing.Color]::white
+$setEmp.Text = "Select"
+$form.Controls.Add($setEmp)
+
+# Create date label
+$terminationDate = New-Object Windows.Forms.Label
+$terminationDate.Text = "Select termination date."
+$terminationDate.AutoSize = $true
+$terminationDate.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$terminationDate.Location = New-Object System.Drawing.Point(40, 170)
+$form.Controls.Add($terminationDate)
+
+# Create DateTimePicker and set size and location
+$datePicker = New-Object System.Windows.Forms.DateTimePicker
+$datePicker.Location = New-Object System.Drawing.Point(40, 200)
+$datePicker.Width = 400
+$datePicker.Format = [System.Windows.Forms.DateTimePickerFormat]::Custom
+$datePicker.CustomFormat = "dd MMMM yyyy"
+$form.Controls.Add($datePicker)
+
+
+# Create terminate employee label
+$empToTerm = New-Object Windows.Forms.Label
+$empToTerm.Text = "Employee for termination:"
+$empToTerm.AutoSize = $true
+$empToTerm.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$empToTerm.Location = New-Object System.Drawing.Point(40, 240)
+$form.Controls.Add($empToTerm)
+
+
+
+# Create the employee to be terminated label control and set text, size, and location
+$empLabel = New-Object Windows.Forms.Label
+$empLabel.Text = ""
+$empLabel.AutoSize = $true
+$empLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$empLabel.Location = New-Object System.Drawing.Point(40, 270)
+$form.Controls.Add($empLabel)
+
+# Create the reference Label
+$samLabel = New-Object Windows.Forms.Label
+$samLabel.Text = ""
+$samLabel.AutoSize = $true
+$samLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$samLabel.Location = New-Object System.Drawing.Point(40, 300)
+$form.Controls.Add($samLabel)
+
+# Create the employee to be terminated label control and set text, size, and location
+$dnLabel = New-Object Windows.Forms.Label
+$dnLabel.Text = ""
+$dnLabel.AutoSize = $true
+$dnLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$dnLabel.Location = New-Object System.Drawing.Point(40, 330)
+$form.Controls.Add($dnLabel)
+
+# Create the radio button A controls
+$radioButton1 = New-Object System.Windows.Forms.RadioButton
+$radioButton1.Text = "Terminated OU"
+$radioButton1.Location = New-Object System.Drawing.Point(350, 270)
+$radioButton1.Add_CheckedChanged({
+    if ($radioButton1.Checked) {
+        $btnTerminate.Visible = $true
+        $global:termUserOuSelect = "A"
+    }
+})
+$form.Controls.Add($radioButton1)
+
+# Create the radio button B controls
+$radioButton2 = New-Object System.Windows.Forms.RadioButton
+$radioButton2.Text = "Email Forward"
+$radioButton2.Location = New-Object System.Drawing.Point(350, 300)
+$radioButton2.Add_CheckedChanged({
+    if ($radioButton2.Checked) {
+       $btnTerminate.Visible = $true
+       $global:termUserOuSelect = "B"
+    }
+})
+$form.Controls.Add($radioButton2)
+
+# Create Button for termination
+$btnTerminate = New-Object Windows.Forms.Button
+$btnTerminate.Location = New-Object System.Drawing.Point(150, 370)
+$btnTerminate.Width = 200
+$btnTerminate.Height = 40
+$btnTerminate.BackColor = [System.Drawing.Color]::FromArgb(255, 0, 0)
+$btnTerminate.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
+$btnTerminate.Text = "Terminate Employee"
+$form.Controls.Add($btnTerminate)
+$btnTerminate.Visible = $false
+
+
+
+$btn.Add_Click({
+    # Get the user input from the textfield
+    $userInput = $textfield.Text
+    
+    # Search for the user in Active Directory
+    $users = Get-ADUser -Filter "Surname -like '*$userInput*'"
+    
+    # Clear the combo box
+    $comboBox.Items.Clear()
+    
+    # Add the results to the combo box
+    foreach ($user in $users) {
+        $displayName = "$($user.SamAccountName)"
+        $comboBox.Items.Add($displayName)
+    }
+})
+
+function Remove-Groups {
+    forEach($groupDn in $global:adUser.MemberOf){
+                $adGroup = Get-ADGroup $groupDn
+                if($adGroup.SamAccountName -ne "Domain Users"){
+                    $adGroup | Remove-ADGroupMember -Members $adUser -Confirm:$false
+                    if($?){
+                        Write-Host "Removed: $($adUser.SamAccountName) from $($adGroup.SamAccountName)" -ForegroundColor Green
+                    }else{
+                        Write-Warning "failed to remove $($adUser.SamAccountName) from $($adGroup.SamAccountName)" -ForegroundColor Red
+                    }
+                }
+            }
+}
+
+function Email-Forward-Disabled {
+     try {
+        Move-ADObject -Identity $global:adUser.DistinguishedName -TargetPath $EmailForwardOU
+        Write-Host "Completed Email Forward" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Failed to move user to email forward OU. Error: $($_.Exception.Message)" -ForegroundColor Red
+    }  
+}
+
+function Move-To-Term {
+    $user = $global:adUser
+    $ou = $user.DistinguishedName
+    switch -Wildcard ($ou) {
+        '*OU=SO,*' {
+            $terminatedOU = "OU=Disabled Accounts,OU=SO,OU=HC,DC=HC,DC=LAN"
+        }
+        default {
+           $terminatedOU = "OU=Terminated Users,DC=HC,DC=LAN"
+        }
+    }
+    
+    try {
+        Move-ADObject -Identity $global:adUser.DistinguishedName -TargetPath $terminatedOU
+        Write-Host "Completed moving to terminated $($terminatedOU)" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Failed to move user to terminated OU. Error: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+function Export-User-Info {
+
+}
+
+function Clear-And-Disable {
+    $terminationDate = $datePicker.Value.ToString("MMddyyyy") 
+    $pattern = "[0-9]+"
+    $newCN = ""
+    if ($adUser.Name -notmatch $pattern) {
+        $newCN = $adUser.Name + " " + $terminationDate
+        Write-Host "New common name: $newCN" -ForegroundColor Green
+        try {
+            Set-ADUser $adUser -PassThru | Rename-ADObject -NewName $newCN 
+            Write-Host "AD user renamed successfully." -ForegroundColor Green
+        } catch {
+            Write-Host "Error renaming AD user: $_" -ForegroundColor Yellow
+        }
+    }Else {
+        Write-Host "User has termination date already in name $_" -ForegroundColor Yellow
+    }
+
+    try {
+        $adUser.SamAccountName | Set-ADUser -Clear Description, homeDrive, ipPhone, title, department, company, manager, scriptPath, physicalDeliveryOfficeName, postOfficeBox, StreetAddress, co, postalCode, c, l -DisplayName $newCN
+        Write-Host "AD user fields cleared successfully." -ForegroundColor Green
+    } catch {
+        Write-Host "Error clearing AD user fields: $_" -ForegroundColor Yellow
+    }
+
+    try {
+        # Disables the user
+        Disable-ADAccount $adUser.SamAccountName
+        Write-Host "AD user disabled successfully." -ForegroundColor Green
+    } catch {
+        Write-Host "Error disabling AD user: $_" -ForegroundColor Red
+    }
+}
+
+
+function Refresh-UserInfo {
+    $selectedEmployee = $comboBox.SelectedItem
+    $global:adUser = Get-ADUser -Identity $selectedEmployee -Properties Name, SamAccountName, MemberOf, Description, Office, StreetAddress, City, State, PostalCode, UserPrincipalName, homeDrive, homeDirectory, ipPhone, info, title, department, company, manager, userAccountControl, cn
+ 
+}
+function Move-Home-Path {
+    $user = $global:adUser
+    $ou = $user.DistinguishedName
+
+    Write-Host "Moving User: $($user.SamAccountName)" -ForegroundColor Yellow
+
+    switch -Wildcard ($ou) {
+        '*OU=BCC,*' {
+            $newHomePath = "\\hc.lan\Person\TerminatedUsers-BCC\HomeDirectory\$($user.SamAccountName)"
+        }
+        '*OU=IT,*' {
+            $newHomePath = "\\hc.lan\Person\TerminatedUsers-IT\HomeDirectory\$($user.SamAccountName)"
+        }
+        '*OU=CLK,*' {
+            $newHomePath = "\\hc.lan\Person\TerminatedUsers-CLK\HomeDirectory\$($user.SamAccountName)"
+        }
+        
+        '*OU=SO,*' {
+            $newHomePath = "\\hc.lan\Person\TerminatedUsers-ENT\$($user.SamAccountName)"
+        }
+        default {
+            $newHomePath = $user.homeDirectory
+        }
+    }
+
+    if ($user.HomeDirectory ) {
+        Write-Host "New home directory path: $newHomePath" -ForegroundColor Green
+        Set-ADUser -Identity $user -HomeDirectory $newHomePath
+    } else {
+        Write-Host "Previously empty home directory, keeping empty" -ForegroundColor Yellow
+    }
+}
+
+function Export-User-Info {
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $adminUser = $currentUser.Name -replace '^HC\\'
+    $employeeInfo = [PSCustomObject]@{
+        Name = $adUser.Name
+        SamAccountName = $adUser.SamAccountName
+        MemberOf = $adUser.MemberOf
+        DistinguishedName = $adUser.DistinguishedName
+        Description = $adUser.Description
+        Info =$adUser.info
+        Office = $adUser.Office
+        StreetAddress = $adUser.StreetAddress
+        City = $adUser.City
+        State = $adUser.State
+        PostalCode = $adUser.PostalCode
+        UserPrincipalName = $adUser.UserPrincipalName
+        HomeDrive = $adUser.HomeDrive
+        HomeDirectory = $adUser.HomeDirectory
+        IPPhone = $adUser.IPPhone
+        Title = $adUser.Title
+        Department = $adUser.Department
+        Company = $adUser.Company
+        Manager = $adUser.Manager
+        UserAccountControl = $adUser.UserAccountControl
+        CN = $adUser.CN
+        TerminatedBy = $adminUser 
+    }
+
+    $csvFilePath = "\\hc12itsup\zCache\Service Desk\Tools\Terminate User\Terminated User Log\$($adUser.Name).csv"
+  
+    # Export the employee information to the CSV file
+    $employeeInfo | Export-Csv -Path $csvFilePath -NoTypeInformation -Append
+    
+    Write-Host "Info Export" -ForegroundColor Green
+}
+
+
+$setEmp.Add_Click({
+    $selectedItem = $comboBox.SelectedItem  
+    $global:adUser = Get-ADUser $selectedItem -Properties Name, SamAccountName, MemberOf, Description, Office, StreetAddress, City, State, PostalCode, UserPrincipalName, `
+         homeDrive, HomeDirectory, ipPhone, info, title, department, company, manager, userAccountControl, cn
+
+    # Update the label controls with user information
+    $empLabel.Text = $adUser.Name
+    $samLabel.Text = $adUser.SamAccountName
+    $dnLabel.Text = $adUser.DistinguishedName
+    if ($adUser.DistinguishedName.length -ge 60) {
+        $dnLabel.Location = New-Object System.Drawing.Point(30, 330)
+        $dnLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Regular)
+    } elseif ($adUser.DistinguishedName.length -ge 55){
+	    $dnLabel.Location = New-Object System.Drawing.Point(40, 330)
+        $dnLabel.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
+	}elseif ($adUser.DistinguishedName.length -le 54) {
+		$dnLabel.Location = New-Object System.Drawing.Point(40, 330)
+		$dnLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+	}
+})
+
+# Add event handler for terminate button
+$btnTerminate.Add_Click({
+    $employee = $comboBox.SelectedItem
+    $terminationDate = $datePicker.Value.ToString("MMddyyyy")
+   
+    $msg = "Are you sure you want to terminate $($adUser.Name) on $terminationDate`? This will clear many of the user's info fields, their Members Of, and disable them."
+    $result = [System.Windows.Forms.MessageBox]::Show($msg, "Confirm Termination", [System.Windows.Forms.MessageBoxButtons]::YesNo)
+    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Export-User-Info
+       
+        # Perform employee termination
+        Remove-Groups
+        
+        Refresh-UserInfo
+
+        Move-Home-Path
+        
+        Refresh-UserInfo
+ 
+        if ($termUserOuSelect -like "A"){ 
+            Move-To-Term
+        } elseif ($termUserOuSelect -like "B") {
+            Email-Forward-Disabled
+        } Else {
+            Write-Host "Something went wrong moving OU's" -ForegroundColor Red
+        }
+
+        Refresh-UserInfo
+        
+        Clear-And-Disable
+        
+        Write-Host "User $employee terminated $terminationDate" -ForegroundColor Cyan
+        $form.Close();
+    }
+ 
+})
+
+# Show the form
+$form.ShowDialog() 
