@@ -1,0 +1,236 @@
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+
+$form = New-Object Windows.Forms.Form
+$form.Text = "Employee Verification Console"
+$form.ClientSize = New-Object System.Drawing.Size(500, 500)
+$form.BackColor = [System.Drawing.Color]::White
+
+
+# Create the label control and set text, size, and location
+$label = New-Object Windows.Forms.Label
+$label.Text = "Search for employee:"
+$label.AutoSize = $true
+$label.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$label.Location = New-Object System.Drawing.Point(40, 20)
+$form.Controls.Add($label)
+
+
+# Create TextBox and set text, size, and location
+$textfield = New-Object Windows.Forms.TextBox
+$textfield.Location = New-Object System.Drawing.Point(40, 50)
+$textfield.Width = 350
+$textfield.Height = 30
+$textfield.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
+$textfield.BackColor = [System.Drawing.Color]::FromArgb(255, 248, 243, 212)
+$form.Controls.Add($textfield)
+
+# Create Button to search AD and set text, size, and location
+$surnameSearch = New-Object Windows.Forms.Button
+$surnameSearch.Location = New-Object System.Drawing.Point(390, 50)
+$surnameSearch.Width = 50
+$surnameSearch.Height = 25
+$surnameSearch.FlatStyle = "Flat"
+$surnameSearch.BackColor = [System.Drawing.Color]::White
+$surnameSearch.Text = "lName"
+$form.Controls.Add($surnameSearch)
+
+# Create Button to search AD and set text, size, and location
+$samSearch = New-Object Windows.Forms.Button
+$samSearch.Location = New-Object System.Drawing.Point(440, 50)
+$samSearch.Width = 50
+$samSearch.Height = 25
+$samSearch.FlatStyle = "Flat"
+$samSearch.BackColor = [System.Drawing.Color]::White
+$samSearch.Text = "SAM"
+$form.Controls.Add($samSearch)
+
+# Create the set employee label control and set text, size, and location
+$selectEmpLabel = New-Object Windows.Forms.Label
+$selectEmpLabel.Text = "Select employee:"
+$selectEmpLabel.AutoSize = $true
+$selectEmpLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$selectEmpLabel.Location = New-Object System.Drawing.Point(40, 90)
+$form.Controls.Add($selectEmpLabel)
+
+# Create ComboBox and set size and location
+$comboBox = New-Object System.Windows.Forms.ComboBox
+$comboBox.Location = New-Object System.Drawing.Point(40, 120)
+$comboBox.Width = 350
+$comboBox.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
+$comboBox.Items.AddRange(@("Employee 1", "Employee 2", "Employee 3"))
+$comboBox.BackColor = [System.Drawing.Color]::FromArgb(255, 248, 243, 212)
+$form.Controls.Add($comboBox)
+
+# Create Button to search AD for employee and load info
+$setEmp = New-Object Windows.Forms.Button
+$setEmp.Location = New-Object System.Drawing.Point(390, 120)
+$setEmp.Width = 50
+$setEmp.Height = 25
+$setEmp.FlatStyle = "Flat"
+$setEmp.BackColor = [System.Drawing.Color]::White
+$setEmp.Text = "Select"
+$form.Controls.Add($setEmp)
+
+# Create date label
+$emplabelTitle = New-Object Windows.Forms.Label
+$emplabelTitle.Text = "Employee Info:"
+$emplabelTitle.AutoSize = $true
+$emplabelTitle.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$emplabelTitle.Location = New-Object System.Drawing.Point(40, 170)
+$form.Controls.Add($emplabelTitle)
+
+# Create terminate employee label
+$emplabelName = New-Object Windows.Forms.Label
+$emplabelName.Text = "Employee:"
+$emplabelName.AutoSize = $true
+$emplabelName.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$emplabelName.Location = New-Object System.Drawing.Point(40, 200)
+$form.Controls.Add($emplabelName)
+
+# Create the reference Label
+$enabledLabel = New-Object Windows.Forms.Label
+$enabledLabel.Text = "Enabled:"
+$enabledLabel.AutoSize = $true
+$enabledLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$enabledLabel.Location = New-Object System.Drawing.Point(40, 230)
+$form.Controls.Add($enabledLabel)
+
+# Create the employee to be terminated label control and set text, size, and location
+$empLabel = New-Object Windows.Forms.Label
+$empLabel.Text = "CN"
+$empLabel.AutoSize = $true
+$empLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$empLabel.Location = New-Object System.Drawing.Point(40, 260)
+$form.Controls.Add($empLabel)
+
+# Create the reference Label
+$samLabel = New-Object Windows.Forms.Label
+$samLabel.Text = "Sam Name:"
+$samLabel.AutoSize = $true
+$samLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$samLabel.Location = New-Object System.Drawing.Point(40, 290)
+$form.Controls.Add($samLabel)
+
+# Create the reference Label
+$lastKnownDoor = New-Object Windows.Forms.Label
+$lastKnownDoor.Text = "Last door access:"
+$lastKnownDoor.AutoSize = $true
+$lastKnownDoor.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$lastKnownDoor.Location = New-Object System.Drawing.Point(40, 320)
+$form.Controls.Add($lastKnownDoor)
+
+# Create the reference Label
+$passwordChanged = New-Object Windows.Forms.Label
+$passwordChanged.Text = "Password Changed:"
+$passwordChanged.AutoSize = $true
+$passwordChanged.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$passwordChanged.Location = New-Object System.Drawing.Point(40, 350)
+$form.Controls.Add($passwordChanged)
+
+# Create the reference Label
+$homeDir = New-Object Windows.Forms.Label
+$homeDir.Text = "PHome Dir"
+$homeDir.AutoSize = $true
+$homeDir.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
+$homeDir.Location = New-Object System.Drawing.Point(40, 380)
+$form.Controls.Add($homeDir)
+
+
+# Create Button for termination
+$btnTerminate = New-Object Windows.Forms.Button
+$btnTerminate.Location = New-Object System.Drawing.Point(150, 440)
+$btnTerminate.Width = 200
+$btnTerminate.Height = 40
+$btnTerminate.BackColor = [System.Drawing.Color]::FromArgb(255, 0, 0)
+$btnTerminate.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
+$btnTerminate.Text = "Terminate Employee"
+$form.Controls.Add($btnTerminate)
+$btnTerminate.Visible = $false
+
+$global:User = @()
+
+function Refresh-UserInfo {
+    $selectedEmployee = $comboBox.SelectedItem
+    $global:User = Get-ADUser -Identity $selectedEmployee -Properties Name, SamAccountName, MemberOf, whenChanged, pwdLastSet, lastLogonTimestamp, lastKnownDoorAccessGranted, Enabled, HomeDirectory
+}
+
+$surnameSearch.Add_Click({
+    try {
+        # Get the user input from the textfield
+        $userInput = $textfield.Text
+
+        # Search for the user in Active Directory
+        $users = Get-ADUser -Filter "Surname -like '*$userInput*'"
+
+        # Clear the combo box
+        $comboBox.Items.Clear()
+
+        # Add the results to the combo box
+        foreach ($user in $users) {
+            $displayName = $user.SamAccountName
+            $comboBox.Items.Add($displayName)
+        }
+    } catch {
+        # Display the error message
+        Write-Host "Error occurred during user search:`n$($_.Exception.Message)"
+    }
+})
+
+$samSearch.Add_Click({
+    try {
+        # Get the user input from the textfield
+        $userInput = $textfield.Text
+
+        # Search for the user in Active Directory
+        $users = Get-ADUser -Filter "SamAccountName -like '*$userInput*'"
+
+        # Clear the combo box
+        $comboBox.Items.Clear()
+
+        # Add the results to the combo box
+        foreach ($user in $users) {
+            $displayName = $user.SamAccountName
+            $comboBox.Items.Add($displayName)
+        }
+    } catch {
+        # Display the error message
+        Write-Host "Error occurred during user search:`n$($_.Exception.Message)"
+    }
+})
+
+$comboBox.Add_SelectedIndexChanged({
+    try {
+        $selectedItem = $comboBox.SelectedItem
+        Refresh-UserInfo
+    } catch {
+        # Display the error message
+        Write-Host "Error occurred during user selection:`n$($_.Exception.Message)"
+    }
+})
+
+$setEmp.Add_Click({
+    try {
+        $emplabelName.Text = "User Name: $($global:User.Name)"
+        $enabledLabel.Text = "Enabled: $($global:User.Enabled)"
+        $emplabelTitle.Text = "When Last changed: $((Get-Date $global:User.whenChanged).ToString("MM/dd/yyyy"))"
+        $empLabel.Text = $global:User.DistinguishedName
+        $samLabel.Text = "Sam Name: $($global:User.SamAccountName)"
+       
+        $timestamp = $User.lastKnownDoorAccessGranted
+        $dateTime = [System.DateTime]::FromFileTime($timestamp)
+        $homeDir = $User.HomeDirectory
+       
+
+        $lastKnownDoor.Text =  "Last door access: $($dateTime.ToString("MM/dd/yyyy"))"
+        Write-Host "Last set pswrd $(Get-Date $global:User.pwdLastSet)"
+        $passwordChanged.Text = "PSWD last set:$((Get-Date $global:User.pwdLastSet).ToString("MM/dd/yy"))"
+    } catch {
+        # Display the error message
+        Write-Host "Error occurred during employee selection:`n$($_.Exception.Message)"
+    }
+})
+
+# Show the form
+$form.ShowDialog()
