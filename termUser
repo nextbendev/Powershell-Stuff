@@ -1,5 +1,20 @@
-#Forces Admin sign-in
+# Forces Admin sign-in
 param([switch]$Elevated)
+
+# Check for Microsoft.Graph module and install if necessary
+if (-not (Get-Module -ListAvailable -Name Microsoft.Graph)) {
+    Write-Host "Microsoft.Graph module is not installed."
+    $installGraph = Read-Host "Do you want to install Microsoft.Graph module? (Y/N)"
+    if ($installGraph -eq 'Y') {
+        Install-Module -Name Microsoft.Graph -Scope CurrentUser -Force -SkipPublisherCheck
+        Write-Host "Microsoft.Graph module has been installed."
+      
+    }
+    else {
+        Write-Host "Microsoft.Graph module is required for some functionalities. Please install it and try again."
+        exit
+    }
+}
 
 function Test-Admin {
     $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -59,13 +74,14 @@ $global:confirmA = $false
 $global:confirmB = $false
 $global:adUser = @()
 $global:terminationDate
+$global:strip = $false
 
 
 #create form
 $form = New-Object Windows.Forms.Form
 $form.Text = "Employee Termination Console"
 $form.ClientSize = New-Object System.Drawing.Size(500, 450)
-$form.BackColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+$form.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#BCFD4C")
 
 # Create the label control and set text, size, and location
 $label = New-Object Windows.Forms.Label
@@ -81,7 +97,7 @@ $textfield.Location = New-Object System.Drawing.Point(40, 50)
 $textfield.Width = 350
 $textfield.Height = 30
 $textfield.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
-$textfield.BackColor = [System.Drawing.Color]::FromArgb(255, 248, 243, 212)
+$textfield.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#ecfecd")
 $form.Controls.Add($textfield)
 
 # Create Button to search AD and set text, size, and location
@@ -90,7 +106,7 @@ $btn.Location = New-Object System.Drawing.Point(390, 50)
 $btn.Width = 50
 $btn.Height = 25
 $btn.FlatStyle = "Flat"
-$btn.BackColor = [System.Drawing.Color]::white
+$btn.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#e6e6e6")
 $btn.Text = "Search"
 $form.Controls.Add($btn)
 
@@ -108,7 +124,7 @@ $comboBox.Location = New-Object System.Drawing.Point(40, 120)
 $comboBox.Width = 350
 $comboBox.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
 $comboBox.Items.AddRange(@("Did you hit select by the input box?"))
-$comboBox.BackColor = [System.Drawing.Color]::FromArgb(255, 248, 243, 212)
+$comboBox.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#ecfecd")
 $form.Controls.Add($comboBox)
 
 # Create Button to search AD for employee and load info
@@ -117,7 +133,7 @@ $setEmp.Location = New-Object System.Drawing.Point(390, 120)
 $setEmp.Width = 50
 $setEmp.Height = 25
 $setEmp.FlatStyle = "Flat"
-$setEmp.BackColor = [System.Drawing.Color]::white
+$setEmp.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#e6e6e6")
 $setEmp.Text = "Select"
 $form.Controls.Add($setEmp)
 
@@ -196,6 +212,21 @@ $radioButton2.Add_CheckedChanged({
 })
 $form.Controls.Add($radioButton2)
 
+# Create Checkbox control under radio button 2
+$checkBox = New-Object System.Windows.Forms.CheckBox
+$checkBox.Text = "Strip Licenses"
+$checkBox.Location = New-Object System.Drawing.Point(350, 240)  # You can adjust the location as needed
+$checkBox.Add_CheckedChanged({
+    if ($checkBox.Checked) {
+       $global:strip = $true  # Assuming you want to set this global variable to true when the checkbox is checked
+    }
+    else {
+        $global:strip = $false  # Reset it to false when unchecked
+    }
+})
+$form.Controls.Add($checkBox)
+
+
 # Create Button for termination
 $btnTerminate = New-Object Windows.Forms.Button
 $btnTerminate.Location = New-Object System.Drawing.Point(150, 370)
@@ -270,49 +301,77 @@ function Move-To-Term {
         Write-Host "Failed to move user to terminated OU. Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 }
-function Export-User-Info {
-
-}
 
 function Clear-And-Disable {
-    $terminationDate = $datePicker.Value.ToString("MMddyyyy") 
+    $terminationDate = $datePicker.Value
+    $DeleteDate = $terminationDate.AddDays(30).ToString("MMddyyyy")
     $pattern = "[0-9]+"
     $newCN = ""
+    $description = "Delete on $DeleteDate"
+
     if ($adUser.Name -notmatch $pattern) {
-        $newCN = $adUser.Name + " " + $terminationDate
+        $newCN = $adUser.Name + " " + $terminationDate.ToString("MMddyyyy")
         Write-Host "New common name: $newCN" -ForegroundColor Green
         try {
-            Set-ADUser $adUser -PassThru | Rename-ADObject -NewName $newCN 
+            Set-ADUser $adUser -PassThru | Rename-ADObject -NewName $newCN
             Write-Host "AD user renamed successfully." -ForegroundColor Green
         } catch {
             Write-Host "Error renaming AD user: $_" -ForegroundColor Yellow
         }
-    }Else {
+    } else {
         Write-Host "User has termination date already in name $_" -ForegroundColor Yellow
     }
 
     try {
-        $adUser.SamAccountName | Set-ADUser -Clear Description, homeDrive, ipPhone, title, department, company, manager, scriptPath, physicalDeliveryOfficeName, postOfficeBox, StreetAddress, co, postalCode, c, l -DisplayName $newCN
-        Write-Host "AD user fields cleared successfully." -ForegroundColor Green
+        # Update description and clear other attributes
+        Set-ADUser -Identity $adUser.SamAccountName -Description $description -Clear "homeDrive", "ipPhone", "title", "department", "company", "scriptPath", "physicalDeliveryOfficeName", "postOfficeBox", "StreetAddress", "co", "postalCode", "c", "l" -DisplayName $newCN
+        Write-Host "AD user fields updated successfully." -ForegroundColor Green
+
+        # Remove user from groups
+        $groups = Get-ADUser $adUser.SamAccountName -Properties MemberOf | Select-Object -ExpandProperty MemberOf
+        foreach ($group in $groups) {
+            Remove-ADGroupMember -Identity $group -Members $adUser.SamAccountName -Confirm:$false
+        }
+        Write-Host "Removed user from all groups successfully." -ForegroundColor Green
     } catch {
-        Write-Host "Error clearing AD user fields: $_" -ForegroundColor Yellow
+        Write-Host "Error updating AD user fields: $_" -ForegroundColor Yellow
     }
 
     try {
         # Disables the user
-        Disable-ADAccount $adUser.SamAccountName
+        Disable-ADAccount -Identity $adUser.SamAccountName
         Write-Host "AD user disabled successfully." -ForegroundColor Green
     } catch {
         Write-Host "Error disabling AD user: $_" -ForegroundColor Red
     }
 }
 
+function Mark-To-Delete {
+    $deleteOnDate = $datePicker.Value.AddDays(30).ToString("MM/dd/yy")
+   
+    $NewDescription = "DELETE "+ $deleteOnDate 
+
+    try {
+       
+        # Modify the user description
+        $adUser.Description = $NewDescription
+
+        # Save the changes
+        Set-ADUser -Instance $adUser -ErrorAction Stop
+
+        Write-Host "User description changed successfully."
+    } 
+    catch {
+        Write-Host "An error occurred: $($_.Exception.Message)"
+    }
+}
 
 function Refresh-UserInfo {
     $selectedEmployee = $comboBox.SelectedItem
     $global:adUser = Get-ADUser -Identity $selectedEmployee -Properties Name, SamAccountName, MemberOf, Description, Office, StreetAddress, City, State, PostalCode, UserPrincipalName, homeDrive, homeDirectory, ipPhone, info, title, department, company, manager, userAccountControl, cn
  
 }
+
 function Move-Home-Path {
     $user = $global:adUser
     $ou = $user.DistinguishedName
@@ -349,13 +408,16 @@ function Move-Home-Path {
 function Export-User-Info {
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
     $adminUser = $currentUser.Name -replace '^HC\\'
+    
+    $memberOf = $adUser.MemberOf -join ', '  # Join all the values with a comma and space
+    
     $employeeInfo = [PSCustomObject]@{
         Name = $adUser.Name
         SamAccountName = $adUser.SamAccountName
-        MemberOf = $adUser.MemberOf
+        MemberOf = $memberOf  # Use the updated $memberOf variable
         DistinguishedName = $adUser.DistinguishedName
         Description = $adUser.Description
-        Info =$adUser.info
+        Info = $adUser.info
         Office = $adUser.Office
         StreetAddress = $adUser.StreetAddress
         City = $adUser.City
@@ -378,9 +440,41 @@ function Export-User-Info {
   
     # Export the employee information to the CSV file
     $employeeInfo | Export-Csv -Path $csvFilePath -NoTypeInformation -Append
-    
     Write-Host "Info Export" -ForegroundColor Green
 }
+
+function Strip-Licenses {
+    $user = $global:adUser
+ 
+
+    # Replace this with the sAMAccountName of the user from whom you want to remove all licenses
+    
+
+    # Fetch the UPN from AD based on sAMAccountName
+    $userADInfo = Get-ADUser -Identity $user.SamAccountName -Properties userPrincipalName
+    $userUPN = $userADInfo.userPrincipalName
+
+    # Check if the UPN exists
+    if ($userUPN) {
+        # Fetch the user's current license details from Microsoft Graph
+        $user = Get-MgUser -UserId $userUPN -Select AssignedLicenses
+
+        # Check if the user has any licenses
+        if ($user.AssignedLicenses -and $user.AssignedLicenses.Count -gt 0) {
+            # Extract SKU IDs of all the licenses assigned to the user
+            $licensesToRemove = $user.AssignedLicenses | Select-Object -ExpandProperty SkuId
+
+            # Remove all licenses
+            Set-MgUserLicense -UserId $userUPN -RemoveLicenses $licensesToRemove -AddLicenses @{}
+            Write-Host "Successfully removed all licenses from user $userUPN."
+        } else {
+            Write-Host "The user $userUPN has no licenses to remove."
+        }
+    } else {
+        Write-Host "User with sAMAccountName $userSamAccountName was not found or does not have a UPN."
+    }
+}
+
 
 
 $setEmp.Add_Click({
@@ -412,7 +506,13 @@ $btnTerminate.Add_Click({
     $msg = "Are you sure you want to terminate $($adUser.Name) on $terminationDate`? This will clear many of the user's info fields, their Members Of, and disable them."
     $result = [System.Windows.Forms.MessageBox]::Show($msg, "Confirm Termination", [System.Windows.Forms.MessageBoxButtons]::YesNo)
     if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Connect-Graph -Scopes User.ReadWrite.All, Organization.Read.All
+
         Export-User-Info
+
+        Mark-To-Delete
+
+        Refresh-UserInfo
        
         # Perform employee termination
         Remove-Groups
@@ -429,11 +529,19 @@ $btnTerminate.Add_Click({
             Email-Forward-Disabled
         } Else {
             Write-Host "Something went wrong moving OU's" -ForegroundColor Red
-        }
+        }        
 
         Refresh-UserInfo
         
         Clear-And-Disable
+
+        Refresh-UserInfo
+
+        if ($global:strip = $true){
+           
+            Strip-Licenses
+            Write-Host "User $employee licenses stripped." -ForegroundColor Cyan
+        }
         
         Write-Host "User $employee terminated $terminationDate" -ForegroundColor Cyan
         $form.Close();
@@ -443,3 +551,4 @@ $btnTerminate.Add_Click({
 
 # Show the form
 $form.ShowDialog() 
+
