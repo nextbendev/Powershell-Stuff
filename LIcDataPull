@@ -1,0 +1,103 @@
+# Define the application (client) ID, tenant ID, and client secret
+$clientId = "2222222222"
+$tenantId = "2222222222"
+$clientSecret = "22222"
+
+# Convert the client secret to a SecureString
+$ClientSecretPass = ConvertTo-SecureString -String $clientSecret -AsPlainText -Force
+
+$ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $clientId, $ClientSecretPass
+
+# Authenticate to Microsoft Graph using the client ID, tenant ID, and client secret
+Connect-MgGraph -TenantId $tenantId -ClientSecretCredential $ClientSecretCredential -NoWelcome
+
+# Get the current date in a specific format, e.g., YYYY-MM-DD
+$currentDate = Get-Date -Format "MMddyy"
+
+$histOutputPath = "LicenseMon\LicenseHist\HistLicData_$currentDate.csv"
+$outputPath = "LicenseMon\Ref\LicData.csv"
+$results = @()
+
+# Retrieve all available licenses in the tenant
+$allLicenses = Get-MgSubscribedSku
+
+# Retrieve all AD users with the Department, extensionAttribute1, and DistinguishedName properties
+$allADUsers = Get-ADUser -Filter * -Property UserPrincipalName, Department, DistinguishedName, ObjectGUID |
+    Select-Object -First 200
+
+# String to be trimmed from the OU
+$trimString = ",OU=HC,DC=HC,DC=LAN"
+
+
+# Iterate over each AD user and fetch their licenses from Microsoft Graph
+foreach ($userADInfo in $allADUsers) {
+    $userUPN = $userADInfo.UserPrincipalName
+    $userDepartment = $userADInfo.Department
+    $guid = $userADInfo.ObjectGuid
+    
+    # Extract the OU from the DistinguishedName and trim the last OU component
+    $userOU = $userADInfo.DistinguishedName -replace '^.*?,(OU=.*)', '$1'
+    $userOU = $userOU -replace [regex]::Escape($trimString), ''
+    $ouComponents = $userOU -split ','
+    if ($ouComponents.Length -gt 1) {
+        $ouComponents = $ouComponents[0..($ouComponents.Length - 2)]
+        $userOU = $ouComponents -join ','
+    }
+    $userOU = $userOu.TrimEnd(",CN=Users,DC=HC")
+    
+    #add logic to capture last 3 of OU
+    if ($userOU.Length -gt 3) {
+        $userOU = $userOU.Substring($userOU.Length - 3)
+    }
+    $userOU = $userOu.TrimStart("=")
+    
+    if ($userOU -eq "ect"){
+        $userOU = "IT"
+    }
+    
+ 
+   $user = Get-MgUser -UserId $userUPN -Select AssignedLicenses -ErrorAction SilentlyContinue
+
+    if ($null -eq $user) {
+       
+        continue
+    }
+
+
+    # Map SkuId to SkuPartNumber
+    $licenseNames = $user.AssignedLicenses | ForEach-Object {
+        $skuId = $_.SkuId
+        ($allLicenses | Where-Object { $_.SkuId -eq $skuId }).SkuPartNumber
+    }
+
+    # Create a custom object to store the user, their department,  OU, and their licenses
+    $licenseList = if ($licenseNames) { 
+                        $licenseNames -join ", " 
+                    } else { 
+                        "No licenses assigned" 
+                    }
+
+    # If no licenses are assigned, skip to the next user
+    if ($licenseList -eq "No licenses assigned") {
+        continue
+    }
+   
+ 
+
+    $results += [PSCustomObject]@{
+        "User" = $userUPN
+        "Department" = $userDepartment
+        "OU" = $userOU
+        "Licenses" = $licenseList
+        "GUID" = $guid
+    }
+}
+
+
+# Export the results to the CSV file
+$results | Export-Csv -Path $outputPath -NoTypeInformation
+$results | Export-Csv -Path $histOutputPath -NoTypeInformation
+
+& "FinalDataAgLicMon.ps1"
+
+& "histClean.ps1"
